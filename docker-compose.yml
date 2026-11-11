@@ -1,0 +1,20 @@
+# Local/demo stack: Postgres + Redis + Django/gunicorn + Celery worker + React behind nginx.
+# TLS termination / SSO / secrets manager are expected from the platform in real deployments (see README roadmap).
+x-backend: &backend
+  build: { context: ., dockerfile: backend/Dockerfile }
+  env_file: .env
+  environment: { POSTGRES_HOST: db, REDIS_URL: "redis://redis:6379/0", CELERY_ENABLED: "1", SECURE_SSL_REDIRECT: "0" }
+  depends_on: [db, redis]
+services:
+  db:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: vestro, POSTGRES_USER: vestro, POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}" }
+    volumes: [pgdata:/var/lib/postgresql/data]
+  redis: { image: "redis:7-alpine" }
+  backend: { <<: *backend }
+  worker: { <<: *backend, command: ["celery", "-A", "vestro_api", "worker", "-l", "info", "--concurrency", "2"] }
+  frontend:
+    build: { context: ., dockerfile: frontend/Dockerfile }
+    ports: ["8080:80"]
+    depends_on: [backend]
+volumes: { pgdata: {} }
