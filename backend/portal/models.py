@@ -149,3 +149,20 @@ class AuditEvent(models.Model):
     detail = models.JSONField(default=dict)
     prev_hash = models.CharField(max_length=64)
     hash = models.CharField(max_length=64)
+
+class CustomerAccess(models.Model):
+    """Links one login to one existing banking customer."""
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="portal_customer",
+    )
+    customer = models.OneToOneField(
+        Customer,
+        on_delete=models.PROTECT,
+        related_name="access",
+    )
+    created_at = models.DateTimeField(default=timezone.now)
+
+    def __str__(self):
+        return f"{self.user.username} -> {self.customer.code}"

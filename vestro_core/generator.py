@@ -90,12 +90,37 @@ def _baseline(rng, scale):
     vendors, vsa = [], [a for a in assets if a["type"] == "vendor_service"]
     for i in range(1, 41):
         crit = rng.choices(["critical", "important", "standard"], [25, 35, 40])[0]
-        v = {"id": f"VND-{i:02d}", "name": f"Vendor Synth {i:02d}", "service": rng.choice(["core-banking-platform", "card-switch", "cloud-hosting", "soc-mssp", "payment-gateway", "kyc-api", "managed-network", "atm-managed-service"]),
-             "criticality": crit, "has_audit_clause": True, "exit_plan": True, "data_access": rng.choice(["none", "limited", "pii"]),
-             "last_assessment": d(rng.randint(30, 330)), "assets": []}
+        data_access = rng.choice(["none", "limited", "pii"])
+        remote_enabled = rng.random() < 0.4
+        remote_privileged = remote_enabled and rng.random() < 0.35
+
+        v = {
+            "id": f"VND-{i:02d}",
+            "name": f"Vendor Synth {i:02d}",
+            "service": rng.choice([
+                "core-banking-platform", "card-switch", "cloud-hosting",
+                "soc-mssp", "payment-gateway", "kyc-api",
+                "managed-network", "atm-managed-service"
+            ]),
+            "criticality": crit,
+            "has_audit_clause": True,
+            "exit_plan": True,
+            "data_access": data_access,
+            "hosting_country": "IN",
+            "remote_access": {
+                "enabled": remote_enabled,
+                "privileged": remote_privileged,
+                "via_pam": True
+            },
+            "last_assessment": d(rng.randint(30, 330)),
+            "assets": []
+        }
         vendors.append(v)
+
     for a in vsa:
-        v = rng.choice(vendors); a["vendor_id"] = v["id"]; v["assets"].append(a["id"])
+        v = rng.choice(vendors)
+        a["vendor_id"] = v["id"]
+        v["assets"].append(a["id"])
 
     # --- crypto bill of materials
     crypto, n = [], 0
