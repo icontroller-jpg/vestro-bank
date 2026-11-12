@@ -181,3 +181,95 @@ input[type=range]{padding:0;accent-color:var(--accent)}input[type=search]{min-wi
 
 @media print{.sim-banner,.top,.tabs,.btn,.foot{display:none}body{background:#fff}.card{box-shadow:none;break-inside:avoid}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+
+
+/* Unified customer and institution login */
+
+.login-wrap {
+  min-height: 85vh;
+  display: grid;
+  place-items: center;
+  padding: 40px 16px;
+}
+
+.login-card {
+  width: min(460px, 100%);
+}
+
+.portal-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 18px 0 22px;
+}
+
+.portal-options button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 13px;
+  min-height: 90px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--sunk);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.portal-options button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.portal-options button.selected {
+  border: 2px solid var(--accent);
+  background: var(--accent-soft);
+}
+
+.portal-options button strong {
+  font-size: 13px;
+}
+
+.portal-options button small {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.login-card .field {
+  margin-bottom: 16px;
+}
+
+.login-card .field input,
+.login-card .field select {
+  width: 100%;
+}
+
+.login-card .pw {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-card .pw input {
+  flex: 1;
+  min-width: 0;
+}
+
+.login-card .pw button {
+  flex: none;
+}
+
+.login-card .btn.block {
+  margin-top: 8px;
+}
+
+@media (max-width: 480px) {
+  .portal-options {
+    grid-template-columns: 1fr;
+  }
+}
