@@ -1,15 +1,6 @@
-
 import React, { useState } from "react";
-import { useBank } from "../api.js";
 import { api, setToken } from "../consoleApi.js";
-
-const CUSTOMER_DEMO_USERS = [
-  {
-    username: "aarav.mehta",
-    password: "Demo@2026",
-    label: "Aarav Mehta — Personal Banking",
-  },
-];
+import { customerApi, setCustomerToken } from "../customerApi.js";
 
 const STAFF_DEMO_USERS = [
   {
@@ -29,20 +20,13 @@ const STAFF_DEMO_USERS = [
   },
 ];
 
-export default function Login({ onStaffDone }) {
-  const { call, openOtp, toast } = useBank();
-
+export default function Login({ onCustomerDone, onStaffDone }) {
   const [portal, setPortal] = useState("customer");
   const [user, setUser] = useState("");
   const [pw, setPw] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [show, setShow] = useState(false);
-
-  const demoUsers =
-    portal === "customer"
-      ? CUSTOMER_DEMO_USERS
-      : STAFF_DEMO_USERS;
 
   function changePortal(next) {
     setPortal(next);
@@ -52,7 +36,7 @@ export default function Login({ onStaffDone }) {
   }
 
   function selectDemo(username) {
-    const selected = demoUsers.find(
+    const selected = STAFF_DEMO_USERS.find(
       (item) => item.username === username
     );
 
@@ -66,7 +50,7 @@ export default function Login({ onStaffDone }) {
     setError("");
 
     if (!user.trim() || !pw) {
-      setError("Select a demo account or enter your credentials.");
+      setError("Enter your user ID and password.");
       return;
     }
 
@@ -74,13 +58,14 @@ export default function Login({ onStaffDone }) {
 
     try {
       if (portal === "customer") {
-        const result = call("login", user.trim(), pw);
+        const result = await customerApi.login(user.trim(), pw);
 
-        if (!result?.ok) {
-          throw new Error(result?.error || "Customer login failed.");
+        if (!result?.token || !result?.customer) {
+          throw new Error("Invalid customer login response from server.");
         }
 
-        openOtp(result.value, () => toast("Welcome back"));
+        setCustomerToken(result.token);
+        await onCustomerDone?.(result.customer);
       } else {
         const result = await api.login(user.trim(), pw);
 
@@ -88,10 +73,7 @@ export default function Login({ onStaffDone }) {
           throw new Error("Invalid login response from server.");
         }
 
-        if (
-          !result.user.role ||
-          result.user.role === "customer"
-        ) {
+        if (!result.user.role || result.user.role === "customer") {
           throw new Error("Institution staff access required.");
         }
 
@@ -126,7 +108,7 @@ export default function Login({ onStaffDone }) {
             onClick={() => changePortal("customer")}
           >
             <strong>Customer Banking</strong>
-            <small>Personal accounts, transfers and cards</small>
+            <small>Personal accounts and transaction history</small>
           </button>
 
           <button
@@ -139,31 +121,26 @@ export default function Login({ onStaffDone }) {
           </button>
         </div>
 
-        <div className="field">
-          <label htmlFor="demo-account">
-            Select a demo account
-          </label>
-
-          <select
-            id="demo-account"
-            value={user}
-            onChange={(e) => selectDemo(e.target.value)}
-          >
-            <option value="">Choose an account</option>
-
-            {demoUsers.map((item) => (
-              <option key={item.username} value={item.username}>
-                {portal === "customer"
-                  ? item.label
-                  : `${item.username} — ${item.role}`}
-              </option>
-            ))}
-          </select>
-
-          <div className="hint">
-            Choose an account to automatically fill its credentials.
+        {portal === "staff" && (
+          <div className="field">
+            <label htmlFor="demo-account">Select a staff demo account</label>
+            <select
+              id="demo-account"
+              value={user}
+              onChange={(e) => selectDemo(e.target.value)}
+            >
+              <option value="">Choose an account</option>
+              {STAFF_DEMO_USERS.map((item) => (
+                <option key={item.username} value={item.username}>
+                  {item.username} — {item.role}
+                </option>
+              ))}
+            </select>
+            <div className="hint">
+              Select a staff demo account to fill its credentials.
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="field">
           <label htmlFor="login-user">User ID</label>
@@ -178,7 +155,6 @@ export default function Login({ onStaffDone }) {
 
         <div className="field">
           <label htmlFor="login-password">Password</label>
-
           <div className="pw">
             <input
               id="login-password"
@@ -215,7 +191,7 @@ export default function Login({ onStaffDone }) {
 
         <p className="muted small">
           {portal === "customer"
-            ? "Customer authentication requires OTP verification."
+            ? "Customer credentials are verified by the Vestro banking server."
             : "Restricted access for authorised bank personnel."}
         </p>
       </form>

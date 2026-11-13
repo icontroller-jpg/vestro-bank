@@ -12,7 +12,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import AccessToken
 
-from .models import (Account, ApprovalItem, AuditEvent, Branch, Card, Customer, Deposit, Loan, RailPolicy,
+from .models import (CustomerAccess, Account, ApprovalItem, AuditEvent, Branch, Card, Customer, Deposit, Loan, RailPolicy,
                      StaffProfile, Transaction, HIGH_VALUE_INR, POLICY_RAILS, RAILS, RISK_HOLD_SCORE)
 from .services import Fail, apply_action, audit, item_actions
 
@@ -67,6 +67,107 @@ class Login(APIView):
 class Me(StaffView):
     def get(self, request):
         return Response({"user": user_dict(self.staff)})
+
+
+# ---------- customer portal ----------
+class CustomerLogin(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        username = str(request.data.get("username", "")).strip()
+        password = request.data.get("password", "")
+
+        user = authenticate(username=username, password=password)
+
+        if not user or not user.is_active:
+            raise AuthenticationFailed("Invalid user ID or password.")
+
+        access = getattr(user, "portal_customer", None)
+        if access is None:
+            raise PermissionDenied("This account does not have customer portal access.")
+
+        if getattr(user, "portal_staff", None) is not None:
+            raise PermissionDenied("Use the institution staff portal for this account.")
+
+        token = AccessToken.for_user(user)
+        token.set_exp(lifetime=timedelta(hours=8))
+
+        return Response({
+            "token": str(token),
+            "customer": {
+                "code": access.customer.code,
+                "name": access.customer.name,
+            },
+        })
+
+
+class CustomerView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def initial(self, request, *args, **kwargs):
+        super().initial(request, *args, **kwargs)
+
+        access = getattr(request.user, "portal_customer", None)
+        if access is None:
+            raise PermissionDenied("Customer portal access only.")
+
+        if getattr(request.user, "portal_staff", None) is not None:
+            raise PermissionDenied("Staff accounts cannot use customer endpoints.")
+
+        self.customer = access.customer
+
+
+class CustomerDashboard(CustomerView):
+    def get(self, request):
+        accounts = Account.objects.filter(
+            customer=self.customer,
+            kind="CUSTOMER",
+        ).order_by("code")
+
+        transactions = (
+            Transaction.objects.filter(customer=self.customer)
+            .select_related("from_account", "to_account")
+            .order_by("-created_at")[:50]
+        )
+
+        return Response({
+            "customer": {
+                "code": self.customer.code,
+                "name": self.customer.name,
+                "city": self.customer.city,
+                "segment": self.customer.segment,
+                "kyc_level": self.customer.kyc_level,
+                "risk_rating": self.customer.risk_rating,
+            },
+            "accounts": [
+                {
+                    "code": account.code,
+                    "masked": account.masked,
+                    "kind": account.kind,
+                    "status": account.status,
+                    "bank_frozen": account.bank_frozen,
+                    "freeze_reason": account.freeze_reason,
+                    "balance_paise": account.balance_paise,
+                }
+                for account in accounts
+            ],
+            "transactions": [
+                {
+                    "ref": tx.ref,
+                    "rail": tx.rail,
+                    "amount_paise": tx.amount_paise,
+                    "status": tx.status,
+                    "beneficiary": tx.beneficiary,
+                    "failure_reason": tx.failure_reason,
+                    "from_account": tx.from_account.masked if tx.from_account else None,
+                    "to_account": tx.to_account.masked if tx.to_account else None,
+                    "created_at": tx.created_at.isoformat(),
+                }
+                for tx in transactions
+            ],
+        })
 
 
 class Institution(StaffView):

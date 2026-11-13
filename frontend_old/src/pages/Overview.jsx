@@ -1,93 +1,63 @@
-
 import React from "react";
-import { useBank } from "../api.js";
-import {
-  fmtDateTime,
-  inr,
-  inr0,
-  mask,
-} from "../engine/index.js";
-import {
-  Card,
-  Notice,
-  Page,
-} from "../components/ui.jsx";
+import { Card, Notice, Page } from "../components/ui.jsx";
 
-export default function Overview() {
-  const { state: s } = useBank();
+const money = (paise) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format((Number(paise) || 0) / 100);
 
-  const accounts = s.accounts || [];
-  const cards = s.cards || [];
-  const customer = s.customer || {};
+const dateTime = (value) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString("en-IN");
+};
+
+export default function Overview({ dashboard }) {
+  const customer = dashboard?.customer || {};
+  const accounts = dashboard?.accounts || [];
+  const transactions = dashboard?.transactions || [];
 
   const activeAccounts = accounts.filter(
-    (a) => a.status !== "CLOSED"
-  );
-
-  const activeCards = cards.filter(
-    (c) => c.status !== "BLOCKED"
+    (account) => account.status === "active" && !account.bank_frozen
   );
 
   const totalBalance = activeAccounts.reduce(
-    (sum, account) => sum + (Number(account.balance) || 0),
+    (sum, account) => sum + (Number(account.balance_paise) || 0),
     0
   );
-
-  // Use the available transaction collection.
-  const transactions = [
-    ...(Array.isArray(s.transactions) ? s.transactions : []),
-    ...(Array.isArray(s.txns) ? s.txns : []),
-  ];
-
-  // Avoid showing duplicate transactions.
-  const uniqueTransactions = Array.from(
-    new Map(
-      transactions.map((t, i) => [t.id || `${t.ts}-${i}`, t])
-    ).values()
-  );
-
-  const recentTransactions = (
-    uniqueTransactions.length
-      ? uniqueTransactions
-      : (s.cardTxns || [])
-  ).slice(0, 5);
-
-  const alerts = Array.isArray(s.alerts) ? s.alerts : [];
 
   return (
     <Page
       title={`Welcome back${customer.name ? `, ${customer.name}` : ""}`}
       sub="Your Vestro Bank account overview"
     >
-      {/* Account summary */}
       <div className="grid cols-2">
         <Card title="Total available balance">
-          <div className="big">
-            {inr(totalBalance)}
-          </div>
+          <div className="big">{money(totalBalance)}</div>
           <div className="muted small">
-            Across {activeAccounts.length} active accounts
+            Across {activeAccounts.length} active, unfrozen accounts
           </div>
         </Card>
 
         <Card title="Customer profile">
-          <div className="big">
-            {customer.name || "Vestro Customer"}
+          <div className="big">{customer.name || "Vestro Customer"}</div>
+          <div className="muted small">
+            {customer.segment || "Customer"} · {customer.city || "—"}
           </div>
           <div className="muted small">
-            {customer.segment || "Personal Banking"}
+            Customer ID: {customer.code || "—"}
           </div>
         </Card>
       </div>
 
-      {/* Accounts */}
-      <Card title="Your accounts" sub="A summary of your Vestro accounts">
-        {!activeAccounts.length ? (
-          <Notice
-            tone="info"
-            title="No active accounts"
-          >
-            Your active accounts will appear here.
+      <Card title="Your accounts" sub="Account information from Vestro Bank">
+        {!accounts.length ? (
+          <Notice tone="info" title="No accounts found">
+            No customer accounts are currently linked to your profile.
           </Notice>
         ) : (
           <div className="tablewrap">
@@ -101,27 +71,28 @@ export default function Overview() {
                 </tr>
               </thead>
               <tbody>
-                {activeAccounts.map((a) => (
-                  <tr key={a.id}>
+                {accounts.map((account) => (
+                  <tr key={account.code}>
+                    <td><b>{account.kind || "Bank Account"}</b></td>
+                    <td className="nowrap">{account.masked || "—"}</td>
                     <td>
-                      <b>
-                        {a.type === "SAVINGS"
-                          ? "Savings Account"
-                          : a.type === "CURRENT"
-                          ? "Current Account"
-                          : a.type || "Bank Account"}
-                      </b>
-                    </td>
-                    <td className="nowrap">
-                      {a.number ? mask(a.number) : a.id}
-                    </td>
-                    <td>
-                      <span className="pill ok">
-                        {a.status || "ACTIVE"}
+                      <span className={`pill ${
+                        account.bank_frozen || account.status !== "active"
+                          ? "bad"
+                          : "ok"
+                      }`}>
+                        {account.bank_frozen
+                          ? "FROZEN"
+                          : String(account.status || "UNKNOWN").toUpperCase()}
                       </span>
+                      {account.freeze_reason && (
+                        <div className="muted small">
+                          {account.freeze_reason}
+                        </div>
+                      )}
                     </td>
                     <td className="r nowrap">
-                      {inr(a.balance || 0)}
+                      {money(account.balance_paise)}
                     </td>
                   </tr>
                 ))}
@@ -131,66 +102,14 @@ export default function Overview() {
         )}
       </Card>
 
-      {/* Cards */}
-      <Card
-        title="Your cards"
-        sub="Your debit and credit cards"
-      >
-        {!activeCards.length ? (
-          <Notice
-            tone="info"
-            title="No active cards"
-          >
-            Your issued cards will appear here.
-          </Notice>
-        ) : (
-          <div className="grid cols-2">
-            {activeCards.map((c) => (
-              <div className="cardart" key={c.id}>
-                <div className="ca-top">
-                  <b>Vestro</b>
-                  <span>
-                    {c.kind === "CREDIT" ? "CREDIT" : "DEBIT"}
-                  </span>
-                </div>
-
-                <div className="ca-chip" aria-hidden="true" />
-
-                <div className="ca-num">
-                  •••• •••• •••• {c.last4}
-                </div>
-
-                <div className="ca-bot">
-                  <span>{c.holder || customer.name || "CARD HOLDER"}</span>
-                  <span>{c.expiry || ""}</span>
-                  <span>{c.network || ""}</span>
-                </div>
-
-                {(c.frozen || c.status === "ISSUED") && (
-                  <div className="ca-flag">
-                    {c.status === "ISSUED" ? "NOT ACTIVATED" : "FROZEN"}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-        <p className="muted small">
-          Manage card settings, spending limits and security from Cards.
-        </p>
-      </Card>
-
-      {/* Recent activity */}
       <Card
         title="Recent activity"
         sub="Your latest transactions"
         flush
       >
-        {!recentTransactions.length ? (
+        {!transactions.length ? (
           <div className="pad">
-            <p className="muted">
-              No transactions to display yet.
-            </p>
+            <p className="muted">No transactions to display yet.</p>
           </div>
         ) : (
           <div className="tablewrap">
@@ -199,75 +118,40 @@ export default function Overview() {
                 <tr>
                   <th>Date</th>
                   <th>Description</th>
+                  <th>Rail</th>
                   <th>Status</th>
                   <th className="r">Amount</th>
                 </tr>
               </thead>
               <tbody>
-                {recentTransactions.map((t, i) => (
-                  <tr key={t.id || i}>
+                {transactions.map((transaction) => (
+                  <tr key={transaction.ref}>
                     <td className="nowrap">
-                      {t.ts ? fmtDateTime(t.ts) : "—"}
+                      {dateTime(transaction.created_at)}
                     </td>
                     <td>
-                      <b>
-                        {t.merchant || t.description || t.type || "Transaction"}
-                      </b>
+                      <b>{transaction.beneficiary || "Bank transaction"}</b>
                       <div className="muted small">
-                        {t.category || t.channel || ""}
+                        Ref: {transaction.ref}
                       </div>
                     </td>
+                    <td>{transaction.rail || "—"}</td>
                     <td>
-                      <span
-                        className={`pill ${
-                          t.status === "DECLINED" ||
-                          t.status === "FAILED"
-                            ? "bad"
-                            : "ok"
-                        }`}
-                      >
-                        {t.status || "COMPLETED"}
+                      <span className={`pill ${
+                        ["FAILED", "REJECTED", "HELD"].includes(transaction.status)
+                          ? "bad"
+                          : "ok"
+                      }`}>
+                        {transaction.status || "UNKNOWN"}
                       </span>
                     </td>
-                    <td
-                      className={`r nowrap ${
-                        t.status === "DECLINED" ? "muted" : t.credit ? "cr" : ""
-                      }`}
-                    >
-                      {t.credit ? "+" : ""}
-                      {inr(t.amount || 0)}
+                    <td className="r nowrap">
+                      {money(transaction.amount_paise)}
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          </div>
-        )}
-      </Card>
-
-      {/* Notifications */}
-      <Card
-        title="Notifications"
-        sub="Important updates about your account"
-      >
-        {!alerts.length ? (
-          <Notice
-            tone="good"
-            title="You're all caught up"
-          >
-            There are no new account notifications.
-          </Notice>
-        ) : (
-          <div className="stack">
-            {alerts.slice(0, 5).map((alert, i) => (
-              <Notice
-                key={alert.id || i}
-                tone={alert.tone || "info"}
-                title={alert.title || "Account notification"}
-              >
-                {alert.message || alert.text || String(alert)}
-              </Notice>
-            ))}
           </div>
         )}
       </Card>

@@ -5,6 +5,8 @@ urlpatterns = [
     path("demo", v.Demo.as_view()),
     path("login", v.Login.as_view()),
     path("me", v.Me.as_view()),
+    path("customer/login", v.CustomerLogin.as_view()),
+    path("customer/dashboard", v.CustomerDashboard.as_view()),
     path("institution", v.Institution.as_view()),
     path("staff/queue", v.Queue.as_view()),
     path("staff/search", v.Search.as_view()),

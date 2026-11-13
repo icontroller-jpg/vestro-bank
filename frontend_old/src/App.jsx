@@ -3,6 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 
 import { BankProvider, bank, useBank } from "./api.js";
 import { api, setToken } from "./consoleApi.js";
+import { customerApi, hasCustomerToken, setCustomerToken } from "./customerApi.js";
 
 import { fmtDate, fmtDateTime, localToday } from "./engine/index.js";
 import OtpModal from "./components/OtpModal.jsx";
@@ -169,18 +170,46 @@ function DemoMenu() {
 // CUSTOMER BANKING DASHBOARD
 // --------------------------------------------------
 
-function Shell() {
-  const { state: s, nav, go, call } = useBank();
-
-  const Page = (TABS.find(([k]) => k === nav.tab) || TABS[0])[2];
-
-  const unread = s.alerts.filter((a) => !a.read).length;
+function Shell({ onSignOut }) {
+  const [dashboard, setDashboard] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    document.title = `${
-      TABS.find(([k]) => k === nav.tab)?.[1] || "Vestro"
-    } · Vestro Bank (simulated)`;
-  }, [nav.tab]);
+    let mounted = true;
+
+    async function loadDashboard() {
+      setLoading(true);
+      setError("");
+      try {
+        const data = await customerApi.dashboard();
+        if (mounted) setDashboard(data);
+      } catch (err) {
+        if (!mounted) return;
+        if (!hasCustomerToken()) {
+          onSignOut();
+          return;
+        }
+        setError(err.message || "Unable to load your dashboard.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    }
+
+    loadDashboard();
+    return () => { mounted = false; };
+  }, [onSignOut]);
+
+  const customer = dashboard?.customer || {};
+
+  function signOut() {
+    setCustomerToken(null);
+    onSignOut();
+  }
+
+  useEffect(() => {
+    document.title = "Overview · Vestro Bank";
+  }, []);
 
   return (
     <>
@@ -189,60 +218,40 @@ function Shell() {
           <span className="logo">V</span>
           <b>Vestro</b>
           <span className="tag">SIMULATED</span>
-
-          <span className="muted hide-sm">
-            Fictional bank · data as of {fmtDate(localToday())}
-          </span>
+          <span className="muted hide-sm">Customer banking · Synthetic data</span>
         </div>
-
         <div className="who">
-          <DemoMenu />
-
-          <button
-            className="bell"
-            onClick={() => go("activity")}
-            aria-label={`Alerts${unread ? `, ${unread} unread` : ""}`}
-          >
-            🔔
-            {unread > 0 && <span className="badge">{unread}</span>}
-          </button>
-
-          <span className="hide-sm">{s.customer.name}</span>
-          <span className="chip sm">{s.customer.segment}</span>
-
-          <button className="btn sm" onClick={() => call("logout")}>
-            Sign out
-          </button>
+          {customer.name && <span className="hide-sm">{customer.name}</span>}
+          {customer.segment && <span className="chip sm">{customer.segment}</span>}
+          <button className="btn sm" onClick={signOut}>Sign out</button>
         </div>
       </header>
 
-      <nav className="tabs" aria-label="Main">
-        {TABS.map(([k, t]) => (
-          <button
-            key={k}
-            className={nav.tab === k ? "on" : ""}
-            aria-current={nav.tab === k ? "page" : undefined}
-            onClick={() => go(k)}
-          >
-            {t}
-          </button>
-        ))}
-      </nav>
-
-      <main key={nav.tab}>
-        <Page />
+      <main>
+        {loading ? (
+          <div className="pad"><p className="muted">Loading your Vestro accounts…</p></div>
+        ) : error ? (
+          <div className="pad">
+            <div className="err" role="alert">{error}</div>
+            <button className="btn sm" onClick={() => window.location.reload()}>
+              Retry
+            </button>
+          </div>
+        ) : (
+          <Overview dashboard={dashboard} />
+        )}
       </main>
 
       <footer className="foot">
         Vestro Bank is a fictional institution for demonstration.
-        No real money, accounts or personal data are used.
-        Not a financial product.
+        All account and transaction data is synthetic. Not a financial product.
       </footer>
     </>
   );
 }
 
 // --------------------------------------------------
+
 // STAFF ACCOUNTS
 // --------------------------------------------------
 
@@ -565,31 +574,38 @@ function PortalSelector({ onSelect }) {
 // --------------------------------------------------
 
 function Gate() {
-  const { state: s } = useBank();
-
-  const [portal, setPortal] = useState("select");
+  const [portal, setPortal] = useState(hasCustomerToken() ? "customer" : "select");
+  const [customerAuthenticated, setCustomerAuthenticated] = useState(hasCustomerToken());
   const [staffAuthenticated, setStaffAuthenticated] = useState(false);
+
+  function customerSignOut() {
+    setCustomerToken(null);
+    setCustomerAuthenticated(false);
+    setPortal("customer");
+  }
 
   if (portal === "customer") {
     return (
       <>
-        {!s.session?.active && (
-          <div
-            style={{
-              padding: 12,
-              background: "#111c30"
-            }}
-          >
-            <button
-              className="btn sm ghost"
-              onClick={() => setPortal("select")}
-            >
+        {!customerAuthenticated && (
+          <div style={{ padding: 12, background: "#111c30" }}>
+            <button className="btn sm ghost" onClick={() => setPortal("select")}>
               ← Switch portal
             </button>
           </div>
         )}
 
-        {s.session?.active ? <Shell /> : <Login />}
+        {customerAuthenticated ? (
+          <Shell onSignOut={customerSignOut} />
+        ) : (
+          <Login
+            onCustomerDone={() => setCustomerAuthenticated(true)}
+            onStaffDone={() => {
+              setStaffAuthenticated(true);
+              setPortal("institution");
+            }}
+          />
+        )}
       </>
     );
   }
@@ -619,6 +635,7 @@ function Gate() {
 }
 
 // --------------------------------------------------
+
 // ROOT APPLICATION
 // --------------------------------------------------
 
