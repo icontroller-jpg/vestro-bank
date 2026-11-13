@@ -7,33 +7,20 @@ import { customerApi, hasCustomerToken, setCustomerToken } from "./customerApi.j
 
 import { fmtDate, fmtDateTime, localToday } from "./engine/index.js";
 import OtpModal from "./components/OtpModal.jsx";
-import { Switch } from "./components/ui.jsx";
+import { Card, Page, Switch } from "./components/ui.jsx";
 
-import {
-  Accounts,
-  Activity,
-  Cards,
-  Deposits,
-  Loans,
-  Login,
-  Overview,
-  Payments
-} from "./pages.jsx";
+import { Login, Overview } from "./pages.jsx";
 
 import InstitutionConsole from "./InstitutionConsole.jsx";
 
 // --------------------------------------------------
-// NAVIGATION
+// CUSTOMER NAVIGATION
 // --------------------------------------------------
 
-const TABS = [
-  ["overview", "Overview", Overview],
-  ["accounts", "Accounts", Accounts],
-  ["payments", "Payments", Payments],
-  ["deposits", "Deposits", Deposits],
-  ["loans", "Loans", Loans],
-  ["cards", "Cards", Cards],
-  ["activity", "Alerts & activity", Activity]
+const CUSTOMER_NAV = [
+  ["overview", "Overview"],
+  ["accounts", "Accounts"],
+  ["transactions", "Transactions"]
 ];
 
 // --------------------------------------------------
@@ -170,10 +157,20 @@ function DemoMenu() {
 // CUSTOMER BANKING DASHBOARD
 // --------------------------------------------------
 
+function formatPaise(value) {
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(Number(value || 0) / 100);
+}
+
 function Shell({ onSignOut }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [activePage, setActivePage] = useState("overview");
 
   useEffect(() => {
     let mounted = true;
@@ -181,15 +178,18 @@ function Shell({ onSignOut }) {
     async function loadDashboard() {
       setLoading(true);
       setError("");
+
       try {
         const data = await customerApi.dashboard();
         if (mounted) setDashboard(data);
       } catch (err) {
         if (!mounted) return;
+
         if (!hasCustomerToken()) {
           onSignOut();
           return;
         }
+
         setError(err.message || "Unable to load your dashboard.");
       } finally {
         if (mounted) setLoading(false);
@@ -197,19 +197,27 @@ function Shell({ onSignOut }) {
     }
 
     loadDashboard();
-    return () => { mounted = false; };
+
+    return () => {
+      mounted = false;
+    };
   }, [onSignOut]);
 
   const customer = dashboard?.customer || {};
+  const pageTitle = {
+    overview: "Overview",
+    accounts: "Accounts",
+    transactions: "Transactions"
+  }[activePage] || "Overview";
+
+  useEffect(() => {
+    document.title = `${pageTitle} · Vestro Bank`;
+  }, [pageTitle]);
 
   function signOut() {
     setCustomerToken(null);
     onSignOut();
   }
-
-  useEffect(() => {
-    document.title = "Overview · Vestro Bank";
-  }, []);
 
   return (
     <>
@@ -218,27 +226,78 @@ function Shell({ onSignOut }) {
           <span className="logo">V</span>
           <b>Vestro</b>
           <span className="tag">SIMULATED</span>
-          <span className="muted hide-sm">Customer banking · Synthetic data</span>
+          <span className="muted hide-sm">
+            Customer banking · Synthetic data
+          </span>
         </div>
+
         <div className="who">
-          {customer.name && <span className="hide-sm">{customer.name}</span>}
-          {customer.segment && <span className="chip sm">{customer.segment}</span>}
-          <button className="btn sm" onClick={signOut}>Sign out</button>
+          {customer.name && (
+            <span className="hide-sm">{customer.name}</span>
+          )}
+
+          {customer.segment && (
+            <span className="chip sm">{customer.segment}</span>
+          )}
+
+          <button className="btn sm" onClick={signOut}>
+            Sign out
+          </button>
         </div>
       </header>
 
+      <nav
+        aria-label="Customer banking navigation"
+        style={{
+          display: "flex",
+          gap: 8,
+          padding: "14px 24px",
+          overflowX: "auto",
+          borderBottom: "1px solid #29434b"
+        }}
+      >
+        {CUSTOMER_NAV.map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            className={`btn sm ${activePage === key ? "primary" : "ghost"}`}
+            aria-current={activePage === key ? "page" : undefined}
+            onClick={() => setActivePage(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </nav>
+
       <main>
         {loading ? (
-          <div className="pad"><p className="muted">Loading your Vestro accounts…</p></div>
+          <div className="pad">
+            <p className="muted">Loading your Vestro accounts…</p>
+          </div>
         ) : error ? (
           <div className="pad">
             <div className="err" role="alert">{error}</div>
-            <button className="btn sm" onClick={() => window.location.reload()}>
+            <button
+              className="btn sm"
+              onClick={() => window.location.reload()}
+            >
               Retry
             </button>
           </div>
         ) : (
-          <Overview dashboard={dashboard} />
+          <>
+            {activePage === "overview" && (
+              <Overview dashboard={dashboard} />
+            )}
+
+            {activePage === "accounts" && (
+              <CustomerAccounts dashboard={dashboard} />
+            )}
+
+            {activePage === "transactions" && (
+              <CustomerTransactions dashboard={dashboard} />
+            )}
+          </>
         )}
       </main>
 
@@ -247,6 +306,120 @@ function Shell({ onSignOut }) {
         All account and transaction data is synthetic. Not a financial product.
       </footer>
     </>
+  );
+}
+
+function CustomerAccounts({ dashboard }) {
+  const accounts = dashboard?.accounts || [];
+
+  return (
+    <Page
+      title="Your accounts"
+      sub="View your account details, available balances and account status."
+    >
+      {!accounts.length ? (
+        <Card title="Accounts">
+          <p className="muted">No customer accounts were found.</p>
+        </Card>
+      ) : (
+        <div className="grid cols-2">
+          {accounts.map((account) => (
+            <Card
+              key={account.code}
+              title={`Account ${account.code}`}
+              sub={account.masked || "Masked account number"}
+            >
+              <div className="muted small">Current balance</div>
+              <div className="big">
+                {formatPaise(account.balance_paise)}
+              </div>
+
+              <div className="ctl-row">
+                <span className="muted">Account status</span>
+                <b>{account.status}</b>
+              </div>
+
+              <div className="ctl-row">
+                <span className="muted">Bank freeze status</span>
+                <b>{account.bank_frozen ? "Frozen" : "Not frozen"}</b>
+              </div>
+
+              {account.bank_frozen && account.freeze_reason && (
+                <p className="muted small">
+                  Reason: {account.freeze_reason}
+                </p>
+              )}
+            </Card>
+          ))}
+        </div>
+      )}
+    </Page>
+  );
+}
+
+function CustomerTransactions({ dashboard }) {
+  const transactions = dashboard?.transactions || [];
+
+  return (
+    <Page
+      title="Transaction history"
+      sub="Your latest 50 transactions recorded by Vestro Bank."
+    >
+      <Card title="Recent transactions" flush>
+        {!transactions.length ? (
+          <div className="pad">
+            <p className="muted">No transactions found.</p>
+          </div>
+        ) : (
+          <div className="tablewrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Reference</th>
+                  <th>Payment details</th>
+                  <th>Rail</th>
+                  <th>Status</th>
+                  <th className="r">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {transactions.map((tx) => (
+                  <tr key={tx.ref}>
+                    <td className="nowrap">
+                      {fmtDateTime(tx.created_at)}
+                    </td>
+                    <td>{tx.ref}</td>
+                    <td>
+                      {tx.beneficiary || "Account transaction"}
+
+                      {(tx.from_account || tx.to_account) && (
+                        <div className="muted small">
+                          {tx.from_account || "—"}
+                          {" → "}
+                          {tx.to_account || "—"}
+                        </div>
+                      )}
+
+                      {tx.failure_reason && (
+                        <div className="muted small">
+                          {tx.failure_reason}
+                        </div>
+                      )}
+                    </td>
+                    <td>{tx.rail}</td>
+                    <td>{tx.status}</td>
+                    <td className="r nowrap">
+                      {formatPaise(tx.amount_paise)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+    </Page>
   );
 }
 
