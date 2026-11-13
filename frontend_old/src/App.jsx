@@ -1,15 +1,23 @@
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 
-import { BankProvider, bank, useBank } from "./api.js";
+import { BankProvider, useBank } from "./api.js";
 import { api, setToken } from "./consoleApi.js";
-import { customerApi, hasCustomerToken, setCustomerToken } from "./customerApi.js";
+import {
+  customerApi,
+  hasCustomerToken,
+  setCustomerToken
+} from "./customerApi.js";
 
-import { fmtDate, fmtDateTime, localToday } from "./engine/index.js";
 import OtpModal from "./components/OtpModal.jsx";
-import { Card, Page, Switch } from "./components/ui.jsx";
 
 import { Login, Overview } from "./pages.jsx";
+import Accounts from "./pages/Accounts.jsx";
+import Payments from "./pages/Payments.jsx";
+import Activity from "./pages/Activity.jsx";
+import Cards from "./pages/Cards.jsx";
+import Deposits from "./pages/Deposits.jsx";
+import Loans from "./pages/Loans.jsx";
 
 import InstitutionConsole from "./InstitutionConsole.jsx";
 
@@ -20,7 +28,11 @@ import InstitutionConsole from "./InstitutionConsole.jsx";
 const CUSTOMER_NAV = [
   ["overview", "Overview"],
   ["accounts", "Accounts"],
-  ["transactions", "Transactions"]
+  ["payments", "Payments"],
+  ["transactions", "Transactions"],
+  ["cards", "Cards"],
+  ["deposits", "Deposits"],
+  ["loans", "Loans"]
 ];
 
 // --------------------------------------------------
@@ -39,7 +51,6 @@ function Toasts() {
           role={t.kind === "err" ? "alert" : "status"}
         >
           <span>{t.text}</span>
-
           <button
             onClick={() => dismissToast(t.id)}
             aria-label="Dismiss"
@@ -53,161 +64,90 @@ function Toasts() {
 }
 
 // --------------------------------------------------
-// CUSTOMER DEMO MENU
-// --------------------------------------------------
-
-function DemoMenu() {
-  const { state: s, call, toast } = useBank();
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const handleOutsideClick = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) {
-        setOpen(false);
-      }
-    };
-
-    const handleKey = (e) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-
-    document.addEventListener("mousedown", handleOutsideClick);
-    document.addEventListener("keydown", handleKey);
-
-    return () => {
-      document.removeEventListener("mousedown", handleOutsideClick);
-      document.removeEventListener("keydown", handleKey);
-    };
-  }, []);
-
-  return (
-    <div className="demo" ref={ref}>
-      <button
-        className="btn sm ghost"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        aria-haspopup="true"
-      >
-        Demo tools
-      </button>
-
-      {open && (
-        <div className="menu" role="menu">
-          <h3>Simulated SMS inbox</h3>
-
-          {!s.sms.length ? (
-            <p className="muted small">
-              No messages yet. OTPs appear here and in the verification box.
-            </p>
-          ) : (
-            <ul className="sms-list">
-              {s.sms.slice(0, 5).map((m) => (
-                <li key={m.id}>
-                  <div className="muted small">
-                    {fmtDateTime(m.ts)}
-                  </div>
-                  {m.text}
-                </li>
-              ))}
-            </ul>
-          )}
-
-          <h3>Scenarios</h3>
-
-          <div className="ctl-row">
-            <div>
-              <b>Unfamiliar device</b>
-              <div className="muted small">
-                Scores payments as if from a new device, so most need an OTP.
-              </div>
-            </div>
-
-            <Switch
-              checked={!s.settings.deviceTrusted}
-              onChange={(on) => call("setDeviceTrusted", !on)}
-              label="Unfamiliar device"
-            />
-          </div>
-
-          <p className="muted small">
-            Try: pay <code>refund.desk@vstb</code> to a new UPI ID
-            (blocked), or ₹40,000 to Zoya Khan by NEFT (held).
-          </p>
-
-          <button
-            className="btn sm danger"
-            onClick={() => {
-              if (window.confirm("Reset all demo data to the starting state?")) {
-                bank.reset();
-                toast("Demo data reset");
-                setOpen(false);
-              }
-            }}
-          >
-            Reset demo data
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// --------------------------------------------------
 // CUSTOMER BANKING DASHBOARD
 // --------------------------------------------------
-
-function formatPaise(value) {
-  return new Intl.NumberFormat("en-IN", {
-    style: "currency",
-    currency: "INR",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(Number(value || 0) / 100);
-}
 
 function Shell({ onSignOut }) {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [activePage, setActivePage] = useState("overview");
 
+  const signOutRef = useRef(onSignOut);
+
+  useEffect(() => {
+    signOutRef.current = onSignOut;
+  }, [onSignOut]);
+
+  // Initial dashboard load
   useEffect(() => {
     let mounted = true;
 
-    async function loadDashboard() {
+    async function initialLoad() {
       setLoading(true);
       setError("");
 
       try {
         const data = await customerApi.dashboard();
-        if (mounted) setDashboard(data);
+
+        if (mounted) {
+          setDashboard(data);
+        }
       } catch (err) {
         if (!mounted) return;
 
         if (!hasCustomerToken()) {
-          onSignOut();
+          signOutRef.current();
           return;
         }
 
         setError(err.message || "Unable to load your dashboard.");
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+        }
       }
     }
 
-    loadDashboard();
+    initialLoad();
 
     return () => {
       mounted = false;
     };
-  }, [onSignOut]);
+  }, []);
+
+  // Refresh without unmounting the current page
+  const refreshDashboard = useCallback(async () => {
+    setRefreshing(true);
+
+    try {
+      const data = await customerApi.dashboard();
+      setDashboard(data);
+      setError("");
+      return data;
+    } catch (err) {
+      if (!hasCustomerToken()) {
+        signOutRef.current();
+      }
+
+      setError(err.message || "Unable to refresh your dashboard.");
+      throw err;
+    } finally {
+      setRefreshing(false);
+    }
+  }, []);
 
   const customer = dashboard?.customer || {};
+
   const pageTitle = {
     overview: "Overview",
     accounts: "Accounts",
-    transactions: "Transactions"
+    payments: "Payments",
+    transactions: "Transactions",
+    cards: "Cards",
+    deposits: "Deposits",
+    loans: "Loans"
   }[activePage] || "Overview";
 
   useEffect(() => {
@@ -219,15 +159,53 @@ function Shell({ onSignOut }) {
     onSignOut();
   }
 
+  function renderPage() {
+    const pageProps = {
+      dashboard,
+      loading: refreshing,
+      error
+    };
+
+    switch (activePage) {
+      case "accounts":
+        return <Accounts {...pageProps} />;
+
+      case "payments":
+        return (
+          <Payments
+            {...pageProps}
+            onRefresh={refreshDashboard}
+          />
+        );
+
+      case "transactions":
+        return <Activity {...pageProps} />;
+
+      case "cards":
+        return <Cards {...pageProps} />;
+
+      case "deposits":
+        return <Deposits {...pageProps} />;
+
+      case "loans":
+        return <Loans {...pageProps} />;
+
+      case "overview":
+      default:
+        return <Overview dashboard={dashboard} />;
+    }
+  }
+
   return (
     <>
       <header className="top">
         <div className="brand">
           <span className="logo">V</span>
           <b>Vestro</b>
-          <span className="tag">SIMULATED</span>
+          <span className="tag">BANKING</span>
+
           <span className="muted hide-sm">
-            Customer banking · Synthetic data
+            Customer banking
           </span>
         </div>
 
@@ -260,7 +238,9 @@ function Shell({ onSignOut }) {
           <button
             key={key}
             type="button"
-            className={`btn sm ${activePage === key ? "primary" : "ghost"}`}
+            className={`btn sm ${
+              activePage === key ? "primary" : "ghost"
+            }`}
             aria-current={activePage === key ? "page" : undefined}
             onClick={() => setActivePage(key)}
           >
@@ -272,31 +252,48 @@ function Shell({ onSignOut }) {
       <main>
         {loading ? (
           <div className="pad">
-            <p className="muted">Loading your Vestro accounts…</p>
+            <p className="muted">
+              Loading your Vestro accounts…
+            </p>
           </div>
-        ) : error ? (
+        ) : error && !dashboard ? (
           <div className="pad">
-            <div className="err" role="alert">{error}</div>
+            <div className="err" role="alert">
+              {error}
+            </div>
+
             <button
               className="btn sm"
-              onClick={() => window.location.reload()}
+              onClick={async () => {
+                setLoading(true);
+                setError("");
+
+                try {
+                  const data = await customerApi.dashboard();
+                  setDashboard(data);
+                } catch (err) {
+                  setError(
+                    err.message || "Unable to load your dashboard."
+                  );
+                } finally {
+                  setLoading(false);
+                }
+              }}
             >
               Retry
             </button>
           </div>
         ) : (
           <>
-            {activePage === "overview" && (
-              <Overview dashboard={dashboard} />
+            {error && (
+              <div className="pad">
+                <div className="err" role="alert">
+                  {error}
+                </div>
+              </div>
             )}
 
-            {activePage === "accounts" && (
-              <CustomerAccounts dashboard={dashboard} />
-            )}
-
-            {activePage === "transactions" && (
-              <CustomerTransactions dashboard={dashboard} />
-            )}
+            {renderPage()}
           </>
         )}
       </main>
@@ -309,122 +306,7 @@ function Shell({ onSignOut }) {
   );
 }
 
-function CustomerAccounts({ dashboard }) {
-  const accounts = dashboard?.accounts || [];
-
-  return (
-    <Page
-      title="Your accounts"
-      sub="View your account details, available balances and account status."
-    >
-      {!accounts.length ? (
-        <Card title="Accounts">
-          <p className="muted">No customer accounts were found.</p>
-        </Card>
-      ) : (
-        <div className="grid cols-2">
-          {accounts.map((account) => (
-            <Card
-              key={account.code}
-              title={`Account ${account.code}`}
-              sub={account.masked || "Masked account number"}
-            >
-              <div className="muted small">Current balance</div>
-              <div className="big">
-                {formatPaise(account.balance_paise)}
-              </div>
-
-              <div className="ctl-row">
-                <span className="muted">Account status</span>
-                <b>{account.status}</b>
-              </div>
-
-              <div className="ctl-row">
-                <span className="muted">Bank freeze status</span>
-                <b>{account.bank_frozen ? "Frozen" : "Not frozen"}</b>
-              </div>
-
-              {account.bank_frozen && account.freeze_reason && (
-                <p className="muted small">
-                  Reason: {account.freeze_reason}
-                </p>
-              )}
-            </Card>
-          ))}
-        </div>
-      )}
-    </Page>
-  );
-}
-
-function CustomerTransactions({ dashboard }) {
-  const transactions = dashboard?.transactions || [];
-
-  return (
-    <Page
-      title="Transaction history"
-      sub="Your latest 50 transactions recorded by Vestro Bank."
-    >
-      <Card title="Recent transactions" flush>
-        {!transactions.length ? (
-          <div className="pad">
-            <p className="muted">No transactions found.</p>
-          </div>
-        ) : (
-          <div className="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Reference</th>
-                  <th>Payment details</th>
-                  <th>Rail</th>
-                  <th>Status</th>
-                  <th className="r">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((tx) => (
-                  <tr key={tx.ref}>
-                    <td className="nowrap">
-                      {fmtDateTime(tx.created_at)}
-                    </td>
-                    <td>{tx.ref}</td>
-                    <td>
-                      {tx.beneficiary || "Account transaction"}
-
-                      {(tx.from_account || tx.to_account) && (
-                        <div className="muted small">
-                          {tx.from_account || "—"}
-                          {" → "}
-                          {tx.to_account || "—"}
-                        </div>
-                      )}
-
-                      {tx.failure_reason && (
-                        <div className="muted small">
-                          {tx.failure_reason}
-                        </div>
-                      )}
-                    </td>
-                    <td>{tx.rail}</td>
-                    <td>{tx.status}</td>
-                    <td className="r nowrap">
-                      {formatPaise(tx.amount_paise)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
-    </Page>
-  );
-}
-
 // --------------------------------------------------
-
 // STAFF ACCOUNTS
 // --------------------------------------------------
 
@@ -747,8 +629,14 @@ function PortalSelector({ onSelect }) {
 // --------------------------------------------------
 
 function Gate() {
-  const [portal, setPortal] = useState(hasCustomerToken() ? "customer" : "select");
-  const [customerAuthenticated, setCustomerAuthenticated] = useState(hasCustomerToken());
+  const [portal, setPortal] = useState(
+    hasCustomerToken() ? "customer" : "select"
+  );
+
+  const [customerAuthenticated, setCustomerAuthenticated] = useState(
+    hasCustomerToken()
+  );
+
   const [staffAuthenticated, setStaffAuthenticated] = useState(false);
 
   function customerSignOut() {
@@ -762,7 +650,10 @@ function Gate() {
       <>
         {!customerAuthenticated && (
           <div style={{ padding: 12, background: "#111c30" }}>
-            <button className="btn sm ghost" onClick={() => setPortal("select")}>
+            <button
+              className="btn sm ghost"
+              onClick={() => setPortal("select")}
+            >
               ← Switch portal
             </button>
           </div>
@@ -808,7 +699,6 @@ function Gate() {
 }
 
 // --------------------------------------------------
-
 // ROOT APPLICATION
 // --------------------------------------------------
 

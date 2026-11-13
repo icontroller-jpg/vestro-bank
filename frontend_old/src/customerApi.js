@@ -1,3 +1,4 @@
+
 const BASE = import.meta.env.VITE_API_BASE || "";
 const KEY = "vestro_customer_token";
 
@@ -10,10 +11,15 @@ export const setCustomerToken = (token) => {
 };
 
 async function request(method, path, body) {
-  const headers = { "Content-Type": "application/json" };
+  const headers = {
+    "Content-Type": "application/json",
+  };
+
   const token = localStorage.getItem(KEY);
 
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
 
   let response;
 
@@ -28,6 +34,7 @@ async function request(method, path, body) {
   }
 
   let data = null;
+
   try {
     data = await response.json();
   } catch {
@@ -35,10 +42,14 @@ async function request(method, path, body) {
   }
 
   if (!response.ok) {
-    if (response.status === 401) setCustomerToken(null);
+    if (response.status === 401) {
+      setCustomerToken(null);
+    }
 
     throw new Error(
-      data?.detail || data?.message || data?.error ||
+      data?.detail ||
+      data?.message ||
+      data?.error ||
       `Request failed (${response.status})`
     );
   }
@@ -48,8 +59,14 @@ async function request(method, path, body) {
 
 export const customerApi = {
   login: (username, password) =>
-    request("POST", "/api/portal/customer/login", { username, password }),
+    request("POST", "/api/portal/customer/login", {
+      username,
+      password,
+    }),
 
   dashboard: () =>
     request("GET", "/api/portal/customer/dashboard"),
+
+  transfer: (payment) =>
+    request("POST", "/api/portal/customer/payments/", payment),
 };

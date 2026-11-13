@@ -1,28 +1,110 @@
+
 import React from "react";
-import { useBank } from "../api.js";
-import { fmtDateTime } from "../engine/index.js";
-import { Card, Empty, Page, Pill } from "../components/ui.jsx";
+import { Card, Notice, Page } from "../components/ui.jsx";
 
-const LEVEL = { info: "info", warn: "warn", crit: "bad" };
-const NAME = { "otp.sent": "OTP sent", "otp.verified": "OTP verified", "otp.failed": "Wrong OTP entered", "otp.expired": "OTP expired", "otp.resent": "OTP resent", login: "Signed in", logout: "Signed out", "login.failed": "Failed sign-in",
-  "payment.requested": "Payment requested", "payment.completed": "Payment completed", "payment.blocked": "Payment blocked", "payment.cancelled": "Payment cancelled", "beneficiary.added": "Payee added", "beneficiary.removed": "Payee removed",
-  "deposit.opened": "Deposit opened", "deposit.closed": "Deposit closed", "loan.applied": "Loan applied", "loan.disbursed": "Loan disbursed", "loan.emi": "EMI paid", "loan.prepaid": "Loan prepaid", "card.frozen": "Card frozen", "card.unfrozen": "Card unfrozen",
-  "card.blocked": "Card blocked", "card.activated": "Card activated", "card.declined": "Card purchase declined", "card.setting": "Card setting raised", "card.channel.off": "Card channel off", "card.limit.lowered": "Card limit lowered", "card.billpaid": "Card bill paid", "device.trust": "Device setting changed", "limit.raised": "Daily limit raised", "limit.lowered": "Daily limit lowered" };
+const money = (paise) =>
+  new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
+    maximumFractionDigits: 2,
+  }).format((Number(paise) || 0) / 100);
 
-export default function Activity() {
-  const { state: s, call } = useBank();
-  const unread = s.alerts.filter((a) => !a.read).length;
+const titleCase = (value) =>
+  String(value || "—")
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const dateTime = (value) => {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString("en-IN");
+};
+
+export default function Activity({ dashboard, loading = false, error = "" }) {
+  const transactions = dashboard?.transactions || [];
+
   return (
-    <Page title="Alerts & activity" sub="Notifications from the bank and a record of security-relevant actions on your profile"
-      actions={<button className="btn" onClick={() => call("markAlertsRead")} disabled={!unread}>Mark all as read</button>}>
-      <Card title={`Alerts${unread ? ` · ${unread} new` : ""}`} flush>
-        {!s.alerts.length ? <div className="pad"><Empty title="No alerts" /></div> : <ul className="rows pad">{s.alerts.slice(0, 25).map((a) => (
-          <li key={a.id} className={a.read ? "" : "unread"}><Pill tone={LEVEL[a.level]}>{a.level === "crit" ? "Critical" : a.level === "warn" ? "Warning" : "Info"}</Pill><div className="grow"><b>{a.title}</b><div className="muted">{a.text}</div></div><span className="muted small nowrap">{fmtDateTime(a.ts)}</span></li>))}</ul>}
-      </Card>
-      <Card title="Account activity log" sub="Most recent first. If you don't recognise something, call the helpline immediately." flush>
-        <div className="tablewrap"><table><thead><tr><th>When</th><th>Event</th><th>Details</th></tr></thead><tbody>
-          {s.audit.slice(0, 60).map((a) => <tr key={a.id}><td className="nowrap">{fmtDateTime(a.ts)}</td><td>{NAME[a.action] || a.action}</td><td className="muted small">{Object.entries(a.detail || {}).filter(([k]) => !/^(id|code)$/.test(k) || typeof a.detail[k] !== "string").map(([k, v]) => `${k}: ${typeof v === "number" && /amount|value/i.test(k) ? (v / 100).toLocaleString("en-IN") : v}`).join(" · ")}</td></tr>)}</tbody></table></div>
-      </Card>
+    <Page title="Activity">
+      <div className="space-y-4">
+        {error && <Notice>{error}</Notice>}
+
+        <Card>
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Recent activity</h2>
+              <p className="text-sm opacity-70">
+                Your latest banking transactions
+              </p>
+            </div>
+            <span className="text-sm opacity-70">
+              {transactions.length} records
+            </span>
+          </div>
+        </Card>
+
+        {loading && transactions.length === 0 && (
+          <Card>
+            <p>Loading transaction activity...</p>
+          </Card>
+        )}
+
+        {!loading && transactions.length === 0 && (
+          <Card>
+            <p>No transactions available yet.</p>
+          </Card>
+        )}
+
+        {transactions.map((transaction) => (
+          <Card key={transaction.ref}>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="font-semibold">
+                  {titleCase(transaction.rail)}
+                </h3>
+                <p className="text-xs opacity-60">
+                  Reference: {transaction.ref}
+                </p>
+                <p className="mt-2 text-sm">
+                  {transaction.beneficiary || "Bank transaction"}
+                </p>
+              </div>
+
+              <div className="text-right">
+                <p className="font-semibold">
+                  {money(transaction.amount_paise)}
+                </p>
+                <span className="text-xs">
+                  {titleCase(transaction.status)}
+                </span>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 border-t pt-3 text-sm sm:grid-cols-2">
+              <p>
+                <span className="opacity-60">From:</span>{" "}
+                {transaction.from_masked || "—"}
+              </p>
+              <p>
+                <span className="opacity-60">To:</span>{" "}
+                {transaction.to_masked || "—"}
+              </p>
+              <p className="sm:col-span-2">
+                <span className="opacity-60">Date:</span>{" "}
+                {dateTime(transaction.created_at)}
+              </p>
+            </div>
+
+            {transaction.failure_reason && (
+              <div className="mt-3 rounded-lg border border-red-300 p-3 text-sm">
+                <strong>Transaction details:</strong>{" "}
+                {transaction.failure_reason}
+              </div>
+            )}
+          </Card>
+        ))}
+      </div>
     </Page>
   );
 }
